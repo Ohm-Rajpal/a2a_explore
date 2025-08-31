@@ -1,47 +1,43 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
+# --- Python cache & compiled files ---
+__pycache__
 *.py[cod]
 *$py.class
+*.pyc
 
-# C extensions
+# --- C extensions ---
 *.so
 
-# Distribution / packaging
+# --- Build & packaging ---
 .Python
 build/
-develop-eggs/
 dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
 wheels/
 share/python-wheels/
 *.egg-info/
-.installed.cfg
 *.egg
 MANIFEST
 
-# Virtual environments
+# --- Virtual environments ---
+.venv/
 venv/
 ENV/
 env/
-.venv/
-.env/
+.venv.*
+.env
 
-# PyInstaller
-*.manifest
-*.spec
-
-# Installer logs
+# --- Logs & debugging ---
+*.log
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Unit test / coverage reports
+# --- PyInstaller ---
+*.spec
+*.manifest
+
+# --- Unit test / coverage ---
 htmlcov/
 .tox/
 .nox/
@@ -52,68 +48,36 @@ nosetests.xml
 coverage.xml
 *.cover
 .hypothesis/
+.pytest_cache/
 
-# Django stuff
-*.log
-local_settings.py
+# --- Databases ---
 db.sqlite3
 
-# Flask stuff
+# --- Django / Flask ---
+local_settings.py
 instance/
 .webassets-cache
 
-# Scrapy stuff
-.scrapy
-
-# Sphinx documentation
+# --- Documentation ---
 docs/_build/
+site/
 
-# PyBuilder
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
+# --- Jupyter / IPython ---
+.ipynb_checkpoints/
 profile_default/
 ipython_config.py
 
-# pyenv
-.python-version
-
-# Celery
-celerybeat-schedule
-*.celerybeat-schedule
-
-# SageMath
-*.sage.py
-
-# Environments
-.env
-.env.*
-.venv
-.venv.*
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
+# --- Type checking ---
 .mypy_cache/
 .dmypy.json
 dmypy.json
-
-# Pyre type checker
 .pyre/
-
-# pytype static type analyzer
 .pytype/
 
-# Cython debug symbols
+# --- Editors & IDEs ---
+.spyderproject
+.spyproject
+.ropeproject
+
+# --- Cython debug ---
 cython_debug/
