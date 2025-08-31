@@ -118,12 +118,16 @@ async def handle_a2a_message(request: Request):
 
         # Extract user text from A2A structure
         user_text = ""
+        raw_image_bytes = None
+
         if "params" in data and "message" in data["params"]:
             message = data["params"]["message"]
             if "parts" in message:
                 for part in message["parts"]:
                     if part.get("kind") == "text" and "text" in part:
                         user_text += part["text"]
+                    elif part.get("kind") == "file":
+                        raw_image_bytes = part["file"]["bytes"]
 
         print(f"Extracted text: '{user_text}'")
 
