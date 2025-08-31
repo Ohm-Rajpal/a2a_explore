@@ -1,14 +1,32 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
 from openai import OpenAI
-import os
 from dotenv import load_dotenv
+
+import os
 import json
 import hashlib
 import re
 import base64
 from typing import Optional, Dict, Tuple
+
+import time
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
+
+opts = Options()
+opts.add_argument("--headless=new")
+opts.add_argument("--no-sandbox")
+opts.add_argument("--disable-dev-shm-usage")
+opts.add_argument("--disable-gpu")
+opts.add_argument("--window-size=1280,800")
+
+driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
 
 # -------------------------------------------------------------------
 # Setup
@@ -152,6 +170,56 @@ def recall_from_message_text(text: str) -> Optional[str]:
     return PAIR_MEM.get(x)
 
 
+async def optimal_tictac(flat_board):
+    # Flatten the board into a single list for GPT
+    prompt_board = f"""
+    You are playing Tic Tac Toe as "X".
+    The board is given as a flattened Python array of 9 elements:
+
+    board = {flat_board}
+
+    Rules you MUST follow:
+    - Indexing goes left to right, top to bottom, from 0 to 8.
+    - "X" is you, "O" is the opponent, "" is an empty cell.
+    - You MUST place "X" in a cell that is currently "" (empty).
+    - NEVER pick an index that is already occupied.
+    - Choose the move that maximizes your chance of winning, or if not possible, blocks the opponent from winning, otherwise pick the most strategic empty square.
+    - Your output MUST be a single integer (0-8).
+    - Do NOT output text, explanations, arrays, or anything except the integer index.
+    """
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are an expert Tic Tac Toe AI. Output ONLY a single integer (0-8) corresponding to an empty cell. Nothing else."},
+            {"role": "user", "content": prompt_board}
+        ],
+        max_tokens=5,
+        temperature=0
+    )
+
+    # Extract the single index as a string
+    answer = response.choices[0].message.content.strip()
+    return answer
+
+def read_board_state(driver):
+    """Rebuild board state from DOM buttons"""
+    state = ['N'] * 9
+    buttons = driver.find_elements(By.CSS_SELECTOR, "button.cell")
+    for btn in buttons:
+        idx = int(btn.get_attribute("data-index"))
+        value = btn.get_attribute("innerText").strip()
+        if value in ("X", "O"):
+            state[idx] = value
+    return state
+
+def show_board(flat_board):
+    """Print board"""
+    print(f'{flat_board[0]}  |  {flat_board[1]}  |  {flat_board[2]}  ')
+    print(f'{flat_board[3]}  |  {flat_board[4]}  |  {flat_board[5]}  ')
+    print(f'{flat_board[6]}  |  {flat_board[7]}  |  {flat_board[8]}  ')
+
+
 # -------------------------------------------------------------------
 # Capability Handlers
 # -------------------------------------------------------------------
@@ -240,6 +308,78 @@ async def get_memory(user_text: str, request_id: str):
     return format_a2a_response(ans, request_id, "text")
 
 
+async def web_search_task(user_text: str, request_id: str):
+    # go to website
+    # read the board state, ask chat gpt to place an index
+    # use selenium to click the cell
+    # after every move, check DOM if it has a You Win banner and if so regex the secret and end the loop
+
+    url_match = re.search(r'https?://[^\s]+', user_text)
+    website_url = None
+
+    if url_match:
+        website_url = url_match.group(0)
+    
+    # access the website
+    driver.get(website_url)
+
+    # render
+    time.sleep(4)
+
+    # initialize board state
+    board_state = ['N'] * 9
+    
+    # while loop until the 
+    turns = 0
+
+    while turns < 9:
+        # get the optimal index to play
+        board_state = read_board_state(driver)
+
+        print(f'GAME LOOP turn count {turns}')
+        print(f'BOARD state')
+        show_board(board_state)
+
+        index = await optimal_tictac(board_state)
+        print(f'optimal index move {index}')
+
+        # get the button then click
+        button = driver.find_element(By.CSS_SELECTOR, f"button.cell[data-index='{index}']")
+        button.click()
+        turns += 1
+
+        # check if win
+        try:
+            element = driver.find_element(By.CSS_SELECTOR, "div.congratulations.show")
+            if element:
+                full_text = element.text
+                match = re.search(r"\b\d{14}\b", full_text)
+                secret_code = match.group(0) if match else None
+                return format_a2a_response(secret_code, request_id, "text")
+        except:
+            pass
+
+        # opponent move
+        time.sleep(2)
+        turns += 1
+
+        # print('UPDATING BUTTONS')
+        # buttons = driver.find_elements(By.CSS_SELECTOR, "button.cell")
+        # for btn in buttons:
+        #     print(f'current button {btn}')
+        #     # check if disabled attribute exists
+        #     if btn.get_attribute("disabled") is not None:
+        #         # get the visible text from the button
+        #         value = btn.get_attribute("innerText").strip()
+        #         if value == "O":
+        #             idx = int(btn.get_attribute("data-index"))
+        #             board_state[idx] = value
+        #             print(f'PLACED COMPUTER MOVE at {idx}')
+        #             print(f'BOARD LOOKS LIKE {board_state}')
+
+
+    return format_a2a_response("Unable to win", request_id, "text")
+
 # -------------------------------------------------------------------
 # Core A2A Handler
 # -------------------------------------------------------------------
@@ -292,7 +432,9 @@ async def handle_a2a_message(request: Request):
         elif "memory" in user_text.lower():
             print("Classified as memory retreival")
             return await get_memory(user_text, data.get("id", "1"))
-
+        elif "website" in user_text.lower():
+            print("Classified as web browsing automation")
+            return await web_search_task(user_text, data.get("id", "1"))
         elif user_text:
             print("Classified as math/QA problem")
             return await handle_math_or_qa(user_text, data.get("id", "1"))
