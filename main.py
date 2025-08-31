@@ -129,18 +129,18 @@ async def handle_a2a_message(request: Request):
 
         # --- Dispatch to correct handler ---
         if "hash" in user_text.lower():
-            print("🧩 Classified as hashing problem")
+            print("Classified as hashing problem")
             return await handle_hashing(user_text, data.get("id", "1"))
 
         elif user_text:
-            print("🧮 Classified as math/QA problem")
+            print("Classified as math/QA problem")
             return await handle_math_or_qa(user_text, data.get("id", "1"))
 
         # --- Default fallback ---
         return format_a2a_response("Ready for math!", data.get("id", "1"))
 
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         import traceback
         traceback.print_exc()
         return {
@@ -167,7 +167,7 @@ def format_a2a_response(text: str, request_id: str):
         },
         "id": request_id
     }
-    print(f"📤 Sending: {json.dumps(result, indent=2)}")
+    print(f"Sending: {json.dumps(result, indent=2)}")
     return result
 
 # -------------------------------------------------------------------
