@@ -2,6 +2,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from io import BytesIO
+from PIL import Image
+
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -9,8 +12,9 @@ import os
 import json
 import hashlib
 import re
-import base64
+import base64, uuid, datetime
 from typing import Optional, Dict, Tuple
+from fastapi.responses import JSONResponse
 
 import time
 from selenium import webdriver
@@ -55,13 +59,13 @@ async def get_agent_card():
         "name": "General purpose intelligent agent",
         "description": (
             "An agent that can solve various problems: math, cryptography, "
-            "image analysis, web browsing, code generation, and memory tasks"
+            "image understanding, web browsing, code generation, and memory tasks"
         ),
         "capabilities": [
             "chat",
             "math",
             "crypto",
-            "image analysis",
+            "image understanding",
             "web browsing",
             "code gen",
             "task memorization"
@@ -72,6 +76,25 @@ async def get_agent_card():
 # -------------------------------------------------------------------
 # Helper Functions
 # -------------------------------------------------------------------
+
+
+
+# Image
+def is_valid_image_bytes(raw_image_bytes: bytes) -> bool:
+    try:
+        # Attempt to open from memory
+        with Image.open(BytesIO(raw_image_bytes)) as img:
+            img.verify()  # lightweight structural check
+        # Reopen to force full decode of pixel data
+        with Image.open(BytesIO(raw_image_bytes)) as img:
+            img.load()    # or img.convert("RGB")
+        return True
+    except Exception:
+        return False
+
+# iso time
+def _now_iso():
+    return datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
 # Hashing
 def compute_sha512(current: str) -> str:
@@ -245,12 +268,10 @@ async def handle_hashing(user_text: str, request_id: str):
     computed_hash = compute_sequence(input_string, operations)
     return format_a2a_response(computed_hash, request_id, "text")
 
-
-# TO FIX!!!
 async def handle_image(user_text: str, raw_image_bytes: bytes, request_id: str):
-    """Image analysis capability."""
-    image_base64 = base64.b64encode(raw_image_bytes).decode('utf-8')
-    question = user_text if user_text.strip() else "What do you see in this image?"
+    """Image analysis capability that returns an A2A Task in JSON-RPC."""
+    image_base64 = base64.b64encode(raw_image_bytes).decode()
+    question = user_text.strip() or "What do you see in this image?"
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -268,13 +289,59 @@ async def handle_image(user_text: str, raw_image_bytes: bytes, request_id: str):
             }
         ],
         max_tokens=300,
+        temperature=0
     )
 
-    print(f'response.choices[0].message = {response.choices[0].message}')
-    answer = response.choices[0].message.content.strip().lower()
-    print(f'handle image answer is {answer}')   
+    answer = (response.choices[0].message.content or "").strip().lower()
 
-    return format_a2a_response(answer, request_id, "text")
+    # Build A2A Task response
+    task_id = str(uuid.uuid4())
+    context_id = str(uuid.uuid4())
+
+    rpc = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": {
+            "id": task_id,
+            "contextId": context_id,
+            "status": {
+                "state": "completed",
+                "message": {
+                    "kind": "message",
+                    "messageId": f"response-{request_id}",
+                    "role": "agent",
+                    "parts": [
+                        {"kind": "text", "text": answer}
+                    ]
+                },
+                "timestamp": _now_iso()
+            },
+            "history": [
+                {
+                    "kind": "message",
+                    "messageId": str(uuid.uuid4()),
+                    "role": "user",
+                    "parts": [
+                        {"kind": "text", "text": question},
+                        # Do not echo image bytes back; keep an artifact reference if needed
+                    ]
+                },
+                {
+                    "kind": "message",
+                    "messageId": f"response-{request_id}",
+                    "role": "agent",
+                    "parts": [
+                        {"kind": "text", "text": answer}
+                    ]
+                }
+            ],
+            "artifacts": [],
+            "metadata": {},
+            "kind": "task"
+        }
+    }
+
+    return JSONResponse(content=rpc)
 
 async def handle_program(user_text: str, request_id: str):
     """
@@ -363,21 +430,6 @@ async def web_search_task(user_text: str, request_id: str):
         time.sleep(2)
         turns += 1
 
-        # print('UPDATING BUTTONS')
-        # buttons = driver.find_elements(By.CSS_SELECTOR, "button.cell")
-        # for btn in buttons:
-        #     print(f'current button {btn}')
-        #     # check if disabled attribute exists
-        #     if btn.get_attribute("disabled") is not None:
-        #         # get the visible text from the button
-        #         value = btn.get_attribute("innerText").strip()
-        #         if value == "O":
-        #             idx = int(btn.get_attribute("data-index"))
-        #             board_state[idx] = value
-        #             print(f'PLACED COMPUTER MOVE at {idx}')
-        #             print(f'BOARD LOOKS LIKE {board_state}')
-
-
     return format_a2a_response("Unable to win", request_id, "text")
 
 # -------------------------------------------------------------------
@@ -405,9 +457,13 @@ async def handle_a2a_message(request: Request):
                         user_text += part["text"]
                     elif part.get("kind") == "file" and "file" in part:
                         file_info = part["file"]
-                        if file_info.get("mimeType", "").startswith("image/"):
+
+                        if file_info.get("mimeType","").startswith("image/"):
                             raw_image_bytes = base64.b64decode(file_info["bytes"])
-                            print(f"Image extracted: {len(raw_image_bytes)} bytes")
+                            if is_valid_image_bytes(raw_image_bytes):
+                                print(f"Valid image: {len(raw_image_bytes)} bytes")
+                            else:
+                                print("Invalid or corrupt image bytes")
         
         # print(f'Extracted text: {user_text}')
         # print("Length of incoming base64 string:", len(file_info["bytes"]))
@@ -415,8 +471,6 @@ async def handle_a2a_message(request: Request):
 
 
         # --- Dispatch to correct handler ---
-
-        # TODO: NEEDS TO BE FIXED
         if raw_image_bytes:
             print("Classified as image understanding")
             return await handle_image(user_text, raw_image_bytes, data.get("id", "1"))
